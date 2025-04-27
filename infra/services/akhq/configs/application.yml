@@ -1,0 +1,9 @@
+akhq:
+  server:
+    servlet:
+      context-path: /
+    port: 8080
+  connections:
+    my-cluster:
+      properties:
+        bootstrap.servers: "kafka:9092"

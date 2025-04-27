@@ -1,0 +1,21 @@
+{
+    "name": "northwind-postgres-connector",
+    "config": {
+      "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+      "database.hostname": "postgres-northwind",
+      "database.port": "5432",
+      "database.user": "postgres",
+      "database.password": "postgres",
+      "database.dbname": "northwind",
+      "topic.prefix": "northwind",
+      "snapshot.mode": "initial",
+      "database.server.name": "northwind_server",
+      "plugin.name": "pgoutput",
+      "slot.name": "northwind_slot",
+      "publication.autocreate.mode": "filtered",
+      "table.include.list": "public.customers,public.orders,public.products",
+      "schema.history.internal.store.only.captured.tables.ddl": "false",
+      "tombstones.on.delete": "false"
+    }
+}
+  
