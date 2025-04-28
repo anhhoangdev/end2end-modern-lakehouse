@@ -5,4 +5,7 @@ COPY ../../kafka-connect-plugins/debezium-connector-postgres /usr/share/java/deb
 
 COPY configs/ /etc/kafka-connect/
 
+# 🔥 ADD: Copy scripts properly
+COPY scripts/ /etc/kafka-connect/scripts/
+
 RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:latest

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     build: ./services/postgres
@@ -18,6 +16,8 @@ services:
       - "max_wal_senders=10"
     volumes:
       - pg_data:/var/lib/postgresql/data
+    networks:
+      - infra-net
 
   zookeeper:
     build: ./services/zookeeper
@@ -26,6 +26,10 @@ services:
       - "2181:2181"
     env_file:
       - ./services/zookeeper/configs/zookeeper.env
+    volumes:
+      - zookeeper_data:/data    
+    networks:
+      - infra-net
 
   kafka:
     build: ./services/kafka
@@ -36,6 +40,8 @@ services:
       - ./services/kafka/configs/kafka.env
     depends_on:
       - zookeeper
+    networks:
+      - infra-net
 
   schema-registry:
     build: ./services/schema-registry
@@ -46,6 +52,8 @@ services:
       - ./services/schema-registry/configs/schema-registry.env
     depends_on:
       - kafka
+    networks:
+      - infra-net
 
   kafka-connect:
     build: ./services/kafka-connect
@@ -62,19 +70,23 @@ services:
       - ./services/kafka-connect/connectors:/etc/kafka-connect/connectors
       - ./services/kafka-connect/scripts:/etc/kafka-connect/scripts 
     command: >
-      sh -c "/etc/kafka-connect/scripts/create-connect-topics.sh &&
+      sh -c "/etc/kafka-connect/scripts/create-kafka-topics.sh &&
             sleep 5 &&
             exec /etc/confluent/docker/run"
+    networks:
+      - infra-net
 
   akhq:
     image: tchiotludo/akhq
     container_name: akhq
     ports:
-      - "8080:8080"
+      - "18090:8080"
     volumes:
       - ./services/akhq/configs/application.yml:/app/application.yml
     depends_on:
       - kafka
+    networks:
+      - infra-net
 
   minio:
     image: minio/minio:latest
@@ -82,13 +94,142 @@ services:
     ports:
       - "9000:9000"   # S3 API
       - "9001:9001"   # web console
-   
     env_file:
       - ./services/minio/configs/minio.env
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
+    networks:
+      - infra-net
+
+  spark-master:
+    build: ./services/spark
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+    ports:
+      - "7077:7077"
+      - "18080:8080"  # UI exposed cleanly on a non-clashing port
+    networks:
+      - spark-net
+
+  spark-worker-1:
+    build: ./services/spark
+    container_name: spark-worker-1
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+    ports:
+      - "18081:8081"
+    depends_on:
+      - spark-master
+    networks:
+      - spark-net
+
+  spark-worker-2:
+    build: ./services/spark
+    container_name: spark-worker-2
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+    ports:
+      - "18082:8081"
+    depends_on:
+      - spark-master
+    networks:
+      - spark-net
+
+  spark-worker-3:
+    build: ./services/spark
+    container_name: spark-worker-3
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+    ports:
+      - "18083:8081"
+    depends_on:
+      - spark-master
+    networks:
+      - spark-net
+
+  kyuubi:
+    build: ./services/kyuubi
+    container_name: kyuubi
+    ports:
+      - "10009:10009"
+    depends_on:
+      - spark-master
+      - hive-metastore
+    networks:
+      - infra-net
+      - spark-net
+
+  mariadb:
+    build: ./services/mariadb
+    container_name: mariadb
+    env_file:
+      - ./services/mariadb/configs/mariadb.env
+    volumes:
+      - mariadb_data:/var/lib/mysql    # <- add this
+    ports:
+      - "3306:3306"
+    networks:
+      - spark-net
+
+  hive-metastore:
+    build: ./services/hive-metastore
+    container_name: hive-metastore
+    env_file:
+      - ./services/hive-metastore/configs/hive-metastore.env
+    ports:
+      - "9083:9083"
+    depends_on:
+      - postgres
+      - mariadb
+    networks:
+      - spark-net
+
+  airflow:
+    build: ./services/airflow
+    container_name: airflow
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./services/airflow/configs/airflow.env
+    volumes:
+      - airflow_metadata:/opt/airflow/
+      - ../../src/airflow/dags:/opt/airflow/dags
+      - ../../src/airflow/plugins:/opt/airflow/plugins
+      - ../../src/spark-dbt/target/compiled:/opt/airflow/compiled_sqls
+    depends_on:
+      - kyuubi
+      - hive-metastore
+    networks:
+      - infra-net
+      - spark-net
+
+  airflow-db:
+    image: postgres:14
+    container_name: airflow-db
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5433:5432"
+    volumes:
+      - airflow_db_data:/var/lib/postgresql/data
+    networks:
+      - infra-net
 
 volumes:
   pg_data:
   minio_data:
+  mariadb_data:
+  zookeeper_data:
+  airflow_metadata:
+  airflow_db_data:
+
+networks:
+  infra-net:
+  spark-net:
